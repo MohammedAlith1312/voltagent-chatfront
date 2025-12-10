@@ -5,7 +5,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const conversationId = url.searchParams.get("conversationId");
 
-    const backendUrl = new URL("http://localhost:3141/api/history");
+    const backendUrl = new URL("https://voltagent-chatbotbackend.onrender.com/api/history");
 
     // ✅ Forward conversationId if provided
     if (conversationId) {

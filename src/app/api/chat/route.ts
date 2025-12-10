@@ -1,57 +1,53 @@
 // app/api/chat/route.ts
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const USER_ID = "mohammed-alith";
+// This should point to your Voltagent backend (Hono)
+const BACKEND_URL ="https://voltagent-chatbotbackend.onrender.com";
 
 export async function POST(req: Request) {
   try {
-    const url = new URL(req.url);
-    const conversationId = url.searchParams.get("conversationId");
-    
-    // If no conversationId provided, generate a new one
-    const actualConversationId = conversationId || `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Frontend sends: { text, conversationId }
+    const body = await req.json().catch(() => ({} as any));
+    const text = String(body.text ?? "");
+    const conversationId = body.conversationId ?? null;
 
-    const raw = await req.text();
-    const parsed = raw ? JSON.parse(raw) : {};
-    const input = parsed.input ?? [];
-    const options = parsed.options ?? {};
+    if (!text.trim()) {
+      return NextResponse.json(
+        { error: "text is required" },
+        { status: 400 }
+      );
+    }
 
-    // Inject userId + conversationId (don't hardcode CONVERSATION_ID!)
-    const bodyToVolt = JSON.stringify({
-      input,
-      options: {
-        ...options,
-        userId: USER_ID,
-        conversationId: actualConversationId, // ✅ Use the dynamic one
-      },
-      semanticMemory: {
-        enabled: true,
-        semanticLimit: 10,
-        semanticThreshold: 0.6,
-      },
+    // Forward to Voltagent backend /api/chat
+    // Backend already:
+    //  - runs RAG over documents (pgvector)
+    //  - writes Q/A into memory history
+    const backendRes = await fetch(`${BACKEND_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text,
+        conversationId,
+      }),
     });
 
-    const voltRes = await fetch(
-      "http://localhost:3141/agents/sample-app/chat",
+    const data = await backendRes.json();
+
+    // Backend returns: { text, conversationId }
+    return NextResponse.json(
       {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: bodyToVolt,
-      }
-    );
-
-    return new Response(voltRes.body, {
-      status: voltRes.status,
-      headers: {
-        "Content-Type":
-          voltRes.headers.get("content-type") ?? "text/event-stream",
+        text: data.text ?? "",
+        conversationId: data.conversationId ?? conversationId,
       },
-    });
+      { status: backendRes.status }
+    );
   } catch (err) {
     console.error("POST /api/chat error:", err);
-    return new Response("Error talking to AI backend", { status: 500 });
+    return NextResponse.json(
+      { error: "Error talking to AI backend" },
+      { status: 500 }
+    );
   }
 }
